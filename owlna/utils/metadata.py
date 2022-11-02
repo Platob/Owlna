@@ -12,6 +12,7 @@ from pyarrow import field, DataType, Field
 from pyarrow.dataset import partitioning
 
 from owlna.table import Table
+from owlna.utils.arrow import TIMETYPES
 
 
 def fine_decimal(precision: int, scale: int):
@@ -51,7 +52,9 @@ DATATYPES = {
     "char": lambda precision=None, *args, **kwargs:
         pyarrow.large_string() if precision is not None and precision > 42000 else pyarrow.string(),
     "varchar": lambda precision=None, *args, **kwargs:
-        pyarrow.large_string() if precision is not None and precision > 42000 else pyarrow.string()
+        pyarrow.large_string() if precision is not None and precision > 42000 else pyarrow.string(),
+    "time": lambda precision=9, *args, **kwargs: TIMETYPES[int_to_timeunit(precision)],
+    "timestamp with time zone": lambda **kwargs: pyarrow.string()
 }
 
 

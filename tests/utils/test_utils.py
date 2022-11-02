@@ -21,7 +21,9 @@ class MetadataUtilsTests(AthenaTestCase):
             {'Name': 'decimal', 'Type': 'decimal(38,18)'},
             {'Name': 'char', 'Type': 'char(10)'},
             {'Name': 'varchar', 'Type': 'varchar(120)'},
-            {'Name': 'binary', 'Type': 'binary'}
+            {'Name': 'binary', 'Type': 'binary'},
+            {'Name': 'time', 'Type': 'time'},
+            {'Name': 'timestamp with time zone', 'Type': 'timestamp with time zone'}
         ]
 
         expected = [
@@ -37,7 +39,9 @@ class MetadataUtilsTests(AthenaTestCase):
             pa.field("decimal", pa.decimal128(38, 18)),
             pa.field("char", pa.string()),
             pa.field("varchar", pa.string()),
-            pa.field("binary", pa.binary(-1))
+            pa.field("binary", pa.binary(-1)),
+            pa.field("time", pa.time64("ns")),
+            pa.field("timestamp with time zone", pa.string())
         ]
 
         for _1, _2 in zip(raw, expected):
