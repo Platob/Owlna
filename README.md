@@ -19,6 +19,12 @@ with Athena(session=boto3.Session()).connect(
         # cursor.stop() # to stop
         print(cursor.get_query_execution())
         print(cursor.result, cursor.status)
+        
+        # Fetch data
+        schema = cursor.schema_arrow
+        # Generator[pyarrow.RecordBatch]
+        for batch in cursor.fetch_arrow_batches():
+            print(batch)
 ````
 
 See /examples notebooks
