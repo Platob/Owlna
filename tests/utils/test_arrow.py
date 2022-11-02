@@ -1,3 +1,5 @@
+import datetime
+
 import numpy
 import pyarrow
 from pyarrow import RecordBatch, array
@@ -175,4 +177,20 @@ class ArrowUtilsTests(AthenaTestCase):
         self.assertEqual(
             array([numpy.datetime64("2022-10-10T12:00:12.123456789"), None]).cast(pyarrow.timestamp("ms"), safe=False),
             cast_array(array(["2022-10-10T12:00:12.123456Z", None]), pyarrow.timestamp("ms"), safe=False)
+        )
+
+    def test_cast_array_string_to_date(self):
+        self.assertEqual(
+            array([datetime.date(2022, 11, 10)]),
+            cast_array(pyarrow.array(["2022-11-10"]), pyarrow.date32())
+        )
+
+    def test_cast_array_string_to_time(self):
+        self.assertEqual(
+            array([datetime.time(12, 10, 10, 123456)]).cast(pyarrow.time64("us")),
+            cast_array(pyarrow.array(["12:10:10.123456"]), pyarrow.time64("us"), False)
+        )
+        self.assertEqual(
+            array([datetime.time(12, 10, 10, 123000)]).cast(pyarrow.time32("ms")),
+            cast_array(pyarrow.array(["12:10:10.123456"]), pyarrow.time32("ms"), False)
         )

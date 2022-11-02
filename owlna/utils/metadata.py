@@ -1,11 +1,14 @@
 __all__ = [
     "dict_table_metadata_to_table",
     "dict_to_pyarrow_field",
-    "sqltype_to_datatype"
+    "sqltype_to_datatype",
+    "query_result_column_to_pyarrow_field"
 ]
 
+from typing import Optional
+
 import pyarrow
-from pyarrow import field, DataType
+from pyarrow import field, DataType, Field
 from pyarrow.dataset import partitioning
 
 from owlna.table import Table
@@ -18,11 +21,24 @@ def fine_decimal(precision: int, scale: int):
         return pyarrow.decimal128(precision, scale)
 
 
+def int_to_timeunit(i: int) -> str:
+    if i == 0:
+        return "s"
+    elif i <= 3:
+        return "ms"
+    elif i <= 6:
+        return "us"
+    return "ns"
+
+
 DATATYPES = {
-    "string": lambda *args, **kwargs: pyarrow.string(),
+    "string": lambda precision=None, *args, **kwargs:
+        pyarrow.large_string() if precision is not None and precision > 42000 else pyarrow.string(),
     "date": lambda unit, tz, **kwargs: pyarrow.date32(),
-    "timestamp": lambda unit, tz: pyarrow.timestamp(unit, tz),
+    "timestamp": lambda unit, tz, precision=None, **kwarg:
+        pyarrow.timestamp(int_to_timeunit(precision), tz) if precision else pyarrow.timestamp(unit, tz),
     "int": lambda *args, **kwargs: pyarrow.int32(),
+    "integer": lambda *args, **kwargs: pyarrow.int32(),
     "tinyint": lambda *args, **kwargs: pyarrow.int8(),
     "smallint": lambda *args, **kwargs: pyarrow.int16(),
     "bigint": lambda *args, **kwargs: pyarrow.int64(),
@@ -30,18 +46,26 @@ DATATYPES = {
     "decimal": lambda precision, scale, **kwargs: fine_decimal(precision, scale),
     "double": lambda *args, **kwargs: pyarrow.float64(),
     "float": lambda *args, **kwargs: pyarrow.float32(),
-    "binary": lambda n=-1, **kwargs: pyarrow.binary(n),
-    "char": lambda *args, **kwargs: pyarrow.string(),
-    "varchar": lambda *args, **kwargs: pyarrow.string()
+    "binary": lambda precision=None, **kwargs:
+        pyarrow.large_binary() if precision is not None and precision > 42000 else pyarrow.binary(),
+    "char": lambda precision=None, *args, **kwargs:
+        pyarrow.large_string() if precision is not None and precision > 42000 else pyarrow.string(),
+    "varchar": lambda precision=None, *args, **kwargs:
+        pyarrow.large_string() if precision is not None and precision > 42000 else pyarrow.string()
 }
 
 
-def sqltype_to_datatype(sqltype: str) -> DataType:
+def sqltype_to_datatype(
+    sqltype: str,
+    unit: str = "us",
+    tz: Optional[str] = "UTC",
+    **kwargs
+) -> DataType:
     if '(' in sqltype:
         key, args = sqltype.split("(", 1)
         return DATATYPES[key](*(int(_) for _ in args[:-1].split(",")))
     else:
-        return DATATYPES[sqltype](unit="us", tz="UTC")
+        return DATATYPES[sqltype](unit=unit, tz=tz, **kwargs)
 
 
 def dict_to_pyarrow_field(meta: dict, nullable: bool = True):
@@ -89,3 +113,15 @@ def dict_table_metadata_to_table(
         parameters=meta["Parameters"]
     )
 
+
+def query_result_column_to_pyarrow_field(meta: dict) -> Field:
+    return field(
+        meta["Name"],
+        sqltype_to_datatype(
+            meta["Type"], precision=meta["Precision"], scale=meta["Scale"], tz=None
+        ),
+        nullable=not meta["Nullable"].startswith("T"),
+        metadata={
+            k: str(v) for k, v in meta.items() if k not in {"Name", "Nullable"}
+        }
+    )

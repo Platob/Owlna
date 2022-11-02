@@ -1,5 +1,7 @@
 __all__ = ["Connection"]
 
+from typing import Optional
+
 from botocore.config import Config
 from pyarrow.fs import S3FileSystem
 
@@ -13,13 +15,15 @@ class Connection:
     def __init__(
         self,
         server: "Athena",
-        config: Config = DEFAULT_BOTO_CLIENT_CONFIG
+        config: Config = DEFAULT_BOTO_CLIENT_CONFIG,
+        query_options: Optional[dict] = None
     ):
         self.server = server
 
         self.client = self.server.session.client("athena", config=config)
         self.s3fs = self.pyarrow_s3filesystem()
         self.closed = False
+        self.query_options = query_options if query_options else {}
 
     def __del__(self):
         self.close()
@@ -37,6 +41,9 @@ class Connection:
 
     def cursor(self):
         return Cursor(self)
+
+    def execute(self, *args, **kwargs):
+        return self.cursor().execute(*args, **kwargs)
 
     # Table
     def table(

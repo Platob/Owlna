@@ -1,6 +1,7 @@
+import pyarrow
 import pyarrow as pa
 
-from owlna.utils.metadata import dict_to_pyarrow_field
+from owlna.utils.metadata import dict_to_pyarrow_field, query_result_column_to_pyarrow_field
 from tests import AthenaTestCase
 
 
@@ -50,4 +51,75 @@ class MetadataUtilsTests(AthenaTestCase):
         self.assertEqual(
             {b'Type': b'date', b'Comment': b'test Comment'},
             dict_to_pyarrow_field({'Name': 'date', 'Type': 'date', 'Comment': 'test Comment'}).metadata
+        )
+
+    def test_query_result_column_to_pyarrow_field(self):
+        self.assertEqual(
+            pyarrow.field("string", pyarrow.large_string()),
+            query_result_column_to_pyarrow_field({
+                'CatalogName': 'hive',
+                'SchemaName': '',
+                'TableName': '',
+                'Name': 'string',
+                'Label': 'string',
+                'Type': 'varchar',
+                'Precision': 2147483647,
+                'Scale': 0,
+                'Nullable': 'UNKNOWN',
+                'CaseSensitive': True
+            })
+        )
+        self.assertEqual(
+            pyarrow.field("string", pyarrow.string()),
+            query_result_column_to_pyarrow_field({
+                'CatalogName': 'hive',
+                'SchemaName': '',
+                'TableName': '',
+                'Name': 'string',
+                'Label': 'string',
+                'Type': 'varchar',
+                'Precision': 41999,
+                'Scale': 0,
+                'Nullable': 'UNKNOWN',
+                'CaseSensitive': True
+            })
+        )
+        self.assertEqual(
+            pyarrow.field("timestamp", pyarrow.timestamp("ms")),
+            query_result_column_to_pyarrow_field({
+                'CatalogName': 'hive',
+                'SchemaName': '',
+                'TableName': '',
+                'Name': 'timestamp',
+                'Label': 'string',
+                'Type': 'timestamp',
+                'Precision': 3,
+                'Scale': 0,
+                'Nullable': 'UNKNOWN',
+                'CaseSensitive': True
+            })
+        )
+
+    def test_query_result_column_to_pyarrow_field_metadata(self):
+        self.assertEqual(
+            {b'CaseSensitive': b'True',
+             b'CatalogName': b'hive',
+             b'Label': b'string',
+             b'Precision': b'2147483647',
+             b'Scale': b'0',
+             b'SchemaName': b'',
+             b'TableName': b'',
+             b'Type': b'varchar'},
+            query_result_column_to_pyarrow_field({
+                'CatalogName': 'hive',
+                'SchemaName': '',
+                'TableName': '',
+                'Name': 'string',
+                'Label': 'string',
+                'Type': 'varchar',
+                'Precision': 2147483647,
+                'Scale': 0,
+                'Nullable': 'UNKNOWN',
+                'CaseSensitive': True
+            }).metadata
         )

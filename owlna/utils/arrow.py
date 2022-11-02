@@ -2,11 +2,12 @@ __all__ = [
     "cast_batch", "cast_array"
 ]
 
+import pyarrow
 import pyarrow as pa
 import pyarrow.compute as pc
 
 from pyarrow import RecordBatch, Schema, schema as schema_builder, Field, field as field_builder, Array, DataType, \
-    Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid
+    Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid, Time64Type
 
 from ..config import DEFAULT_SAFE_MODE
 
@@ -77,6 +78,14 @@ def string_to_timestamp(arr: Array, dtype: TimestampType, safe: bool = DEFAULT_S
             )
 
 
+def string_to_date(arr: Array, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
+    return string_to_timestamp(arr, TIMESTAMP, safe=safe).cast(DATE, safe)
+
+
+def string_to_time(arr: Array, dtype: Time64Type, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
+    return string_to_timestamp(arr, pyarrow.timestamp(dtype.unit), safe=safe).cast(dtype, safe)
+
+
 def timestamp_to_timestamp(arr: Array, dtype: TimestampType, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
     if arr.type.tz is None:
         # naive
@@ -84,9 +93,20 @@ def timestamp_to_timestamp(arr: Array, dtype: TimestampType, safe: bool = DEFAUL
             return arr.cast(dtype, safe)
         else:
             # need assume timezone
-            return Array.from_pandas(
-                arr.to_pandas().dt.tz_localize(dtype.tz),
-                safe=safe
+            # return Array.from_pandas(
+            #     arr.to_pandas().dt.tz_localize(dtype.tz),
+            #     safe=safe
+            # ).cast(dtype, safe)
+            return pc.assume_timezone(
+                arr,
+                dtype.tz,
+                ambiguous="raise" if safe else "earliest",
+                nonexistent="raise" if safe else "earliest"
+            ) if arr.type.unit == dtype.unit else pc.assume_timezone(
+                arr,
+                dtype.tz,
+                ambiguous="raise" if safe else "earliest",
+                nonexistent="raise" if safe else "earliest"
             ).cast(dtype, safe)
     else:
         return arr.cast(dtype, safe)
@@ -106,6 +126,11 @@ TYPE_CASTS = {
     (STRING, Decimal256Type): lambda arr, dtype, safe=DEFAULT_SAFE_MODE, **kwargs:
         arr.cast(FLOAT64, safe=safe).cast(dtype, safe=safe),
     (STRING, TimestampType): string_to_timestamp,
+    (STRING, DATE): string_to_date,
+    (STRING, TIMES): string_to_time,
+    (STRING, TIMEMS): string_to_time,
+    (STRING, TIMEUS): string_to_time,
+    (STRING, TIMENS): string_to_time,
     (TimestampType, TimestampType): timestamp_to_timestamp
 }
 

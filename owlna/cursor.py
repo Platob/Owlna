@@ -1,12 +1,33 @@
 __all__ = ["Cursor"]
 
+import time
+from asyncio import CancelledError
+from typing import Optional, Union, Iterable
+
+import pyarrow.csv as pcsv
+
+from pyarrow import schema, Schema, DataType
+from pyarrow.fs import S3FileSystem
+
+from owlna.config import QueryStates
+from owlna.exception import AthenaError
+from owlna.utils.metadata import query_result_column_to_pyarrow_field
+
 
 class Cursor:
 
-    def __init__(self, connection: "Connection"):
-        self.connection = connection
-
+    def __init__(
+        self,
+        connection: "Connection"
+    ):
+        self.__result = None
+        self.__status = None
+        self.__statistics = None
+        self.id = None
         self.closed = False
+        self._schema_arrow = None
+
+        self.connection = connection
 
     def __enter__(self):
         return self
@@ -14,5 +35,180 @@ class Cursor:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+    def __repr__(self):
+        return "AthenaCursor(id='%s')" % self.id
+
+    @property
+    def client(self):
+        return self.connection.client
+
+    @property
+    def s3fs(self) -> S3FileSystem:
+        return self.connection.s3fs
+
+    @property
+    def done(self) -> bool:
+        if self.__status is None:
+            self.get_query_execution()
+        return self.__status is not None
+
+    @property
+    def status(self) -> dict:
+        if self.__status is None:
+            return self.get_query_execution()["Status"]
+        return self.__status
+
+    @property
+    def state(self) -> str:
+        return self.status["State"]
+
+    @property
+    def statistics(self) -> dict:
+        if self.__status is None:
+            return self.get_query_execution()["Statistics"]
+        return self.__status
+
+    @property
+    def result(self) -> dict:
+        if self.__result is None:
+            return self.get_query_execution()["ResultConfiguration"]
+        return self.__result
+
+    @property
+    def schema_arrow(self) -> Schema:
+        if self._schema_arrow is None:
+            self.wait()
+            self._schema_arrow = schema(
+                [
+                    query_result_column_to_pyarrow_field(_)
+                    for _ in self.client.get_query_results(
+                        QueryExecutionId=self.id, MaxResults=1
+                    )["ResultSet"]["ResultSetMetadata"]["ColumnInfo"]
+                ]
+            )
+        return self._schema_arrow
+
+    @property
+    def output_location(self) -> str:
+        return self.result["OutputLocation"]
+
+    @property
+    def query_options(self) -> dict:
+        return self.connection.query_options
+
+    def get_query_execution(self) -> dict:
+        meta = self.client.get_query_execution(QueryExecutionId=self.id)["QueryExecution"]
+
+        # persist
+        if QueryStates[meta["Status"]["State"]].value in QueryStates.DONE_STATES.value:
+            self.__status = meta["Status"]
+            self.__statistics = meta["Statistics"]
+            self.__result = meta["ResultConfiguration"]
+
+        return meta
+
+    def unpersist(self):
+        self.__status = None
+        self.__statistics = None
+        self.__result = None
+
     def close(self):
         self.closed = True
+
+    def execute(
+        self,
+        query: str,
+        wait: Optional[Union[float, bool]] = None,
+        **kwargs
+    ) -> "Cursor":
+        """
+        See https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/athena.html#Athena.Client.start_query_execution
+
+        :param query:
+        :param wait: wait query to be done
+        :param kwargs: other boto3 kwargs
+        """
+        self.id = self.client.start_query_execution(
+            QueryString=query,
+            **{
+                k: v for k, v in kwargs.items() if k not in self.query_options
+            },
+            **{
+                k: v for k, v in self.query_options.items() if k not in kwargs
+            }
+        )["QueryExecutionId"]
+        self.unpersist()
+
+        if wait:
+            self.wait(wait)
+
+        return self
+
+    def stop(self):
+        if self.id:
+            self.client.stop_query_execution(QueryExecutionId=self.id)
+            self.id = None
+
+    def __await__(self):
+        self.wait()
+
+    def wait(self, tick: Union[float, bool] = 0.5):
+        if isinstance(tick, bool):
+            tick = 0.5
+        try:
+            while not self.done:
+                time.sleep(tick)
+        except BaseException as e:
+            self.stop()
+            raise e
+        self.raise_exception()
+
+    def raise_exception(self):
+        state = self.state
+
+        if state == QueryStates.CANCELLED.value:
+            raise CancelledError("%s: Cancelled" % repr(self))
+        elif state == QueryStates.FAILED.value:
+            meta = self.status["AthenaError"]
+            raise AthenaError(
+                category=meta["ErrorCategory"],
+                type=meta["ErrorType"],
+                retryable=meta["Retryable"],
+                message=meta["ErrorMessage"],
+                full_message=self.status["StateChangeReason"]
+            )
+
+    def csv_column_types(
+        self,
+        include_columns: Iterable[str] = (),
+        column_types: dict[str, DataType] = {}
+    ):
+        return {
+            field.name: column_types.get(field.name, field.type)
+            for field in self.schema_arrow
+            if (include_columns and field.name in include_columns)
+        }
+
+    # fetch
+    def fetch_arrow_batches(
+        self,
+        include_columns: Iterable[str] = (),
+        column_types: dict[str, DataType] = (),
+        strings_can_be_null: bool = True,
+        delimiter: str = ",",
+        quote_char: str = '"'
+    ):
+        with self.s3fs.open_input_file(self.output_location[5:]) as stream:
+            for batch in pcsv.open_csv(
+                stream,
+                parse_options=pcsv.ParseOptions(
+                    delimiter=delimiter,
+                    quote_char=quote_char
+                ),
+                convert_options=pcsv.ConvertOptions(
+                    column_types=self.csv_column_types(include_columns, column_types),
+                    strings_can_be_null=strings_can_be_null,
+                    include_columns=include_columns
+                )
+            ):
+                yield batch

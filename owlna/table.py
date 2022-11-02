@@ -156,7 +156,8 @@ class Table:
             schema_arrow = self.schema_arrow
 
         if file_options:
-            file_options = self.file_format.make_write_options().update(**file_options)
+            if isinstance(file_options, dict):
+                file_options = self.file_format.make_write_options().update(**file_options)
 
         write_dataset(
             cast_batch(batch, schema_arrow, safe=safe),
