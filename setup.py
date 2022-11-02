@@ -1,6 +1,6 @@
 import unittest
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 def testsuite():
@@ -10,7 +10,7 @@ def testsuite():
 setup(
     name='owlna',
     version='0.0.1',
-    packages=['owlna'],
+    packages=[_ for _ in find_packages() if _ != "tests"],
     url='https://github.com/Platob/Owlna.git',
     license='Apache',
     author='Platob',
