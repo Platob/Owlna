@@ -111,6 +111,7 @@ class Cursor:
         self.__status = None
         self.__statistics = None
         self.__result = None
+        self._schema_arrow = None
 
     def close(self):
         self.closed = True
