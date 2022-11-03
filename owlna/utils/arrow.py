@@ -1,13 +1,15 @@
 __all__ = [
-    "cast_batch", "cast_array"
+    "cast_batch", "cast_array", "cast_arrow"
 ]
+
+from typing import Union, Iterable
 
 import pyarrow
 import pyarrow as pa
 import pyarrow.compute as pc
 
 from pyarrow import RecordBatch, Schema, schema as schema_builder, Field, field as field_builder, Array, DataType, \
-    Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid, Time64Type
+    Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid, Time64Type, Table, RecordBatchReader
 
 from ..config import DEFAULT_SAFE_MODE
 
@@ -37,7 +39,7 @@ LARGE_BINARY = pa.large_binary()
 NULL = pa.null()
 
 
-def get_batch_column_or_empty(batch: RecordBatch, field: Field) -> (Field, Array):
+def get_batch_column_or_empty(batch: Union[RecordBatch, Table], field: Field) -> (Field, Array):
     try:
         idx = batch.schema.names.index(field.name)
         return batch.schema.field(idx), batch.column(idx)
@@ -150,13 +152,15 @@ def cast_array(array: Array, dtype: DataType, safe: bool = DEFAULT_SAFE_MODE):
         return array.cast(dtype, safe=safe)
 
 
-def cast_batch(batch: RecordBatch, schema: Schema, safe: bool = DEFAULT_SAFE_MODE):
+def cast_batch(
+    batch: Union[RecordBatch, Table], schema: Schema, safe: bool = DEFAULT_SAFE_MODE
+) -> Union[RecordBatch, Table]:
     # check names
     if batch.schema.names != schema.names:
         columns: list[(Field, Array)] = [get_batch_column_or_empty(batch, field) for field in schema]
 
         return cast_batch(
-            RecordBatch.from_arrays(
+            batch.__class__.from_arrays(
                 [_[1] for _ in columns],
                 schema=schema_builder([_[0] for _ in columns], metadata=schema.metadata)
             ),
@@ -168,10 +172,27 @@ def cast_batch(batch: RecordBatch, schema: Schema, safe: bool = DEFAULT_SAFE_MOD
         return batch
     else:
         # check data types and cast
-        return RecordBatch.from_arrays(
+        return batch.__class__.from_arrays(
             [
                 cast_array(batch.column(i), schema.field(i).type, safe=safe)
                 for i in range(len(schema))
             ],
             schema=schema
         )
+
+
+def cast_arrow(
+    data: Union[
+        RecordBatch, Table,
+        Iterable[Union[RecordBatch, Table]],
+        RecordBatchReader
+    ],
+    schema: Schema,
+    safe: bool = DEFAULT_SAFE_MODE
+) -> Union[RecordBatch, RecordBatchReader]:
+    if isinstance(data, RecordBatch):
+        return cast_batch(data, schema, safe)
+    elif isinstance(data, Table):
+        return RecordBatchReader.from_batches(schema, cast_batch(data, schema, safe).to_batches())
+    else:
+        return RecordBatchReader.from_batches(schema, (cast_batch(_, schema, safe) for _ in data))

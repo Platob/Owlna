@@ -2,7 +2,7 @@ import tempfile
 
 import pyarrow.dataset
 import pyarrow.parquet
-from pyarrow import RecordBatch, schema
+from pyarrow import RecordBatch, schema, RecordBatchReader, Table
 from pyarrow.fs import LocalFileSystem
 
 from owlna.utils.arrow import cast_batch
@@ -104,7 +104,7 @@ class AthenaTableTests(AthenaTestCase):
         self.assertEqual(expected.schema, self.parquet_partition_table.partitioning.schema)
 
     def test_table_insert_batch_empty(self):
-        self.parquet_table.insert_arrow_batch(RecordBatch.from_arrays(
+        self.parquet_table.insert_arrow(RecordBatch.from_arrays(
             [
                 [] for _ in self.parquet_table.schema_arrow
             ], schema=self.parquet_table.schema_arrow
@@ -121,7 +121,7 @@ class AthenaTableTests(AthenaTestCase):
                 ]
             )
         )
-        self.parquet_table.insert_arrow_batch(
+        self.parquet_table.insert_arrow(
             data,
             filesystem=LocalFileSystem(),
             existing_data_behavior="delete_matching"
@@ -133,6 +133,34 @@ class AthenaTableTests(AthenaTestCase):
                 self.parquet_table.pyarrow_location,
                 coerce_int96_timestamp_unit="ns"
             ).to_batches()[0]
+        )
+
+    def test_table_insert_iterable_batch_full(self):
+        data = RecordBatch.from_arrays(
+            [
+                pyarrow.array(["test", None])
+            ],
+            schema=pyarrow.schema(
+                [
+                    pyarrow.field("string", pyarrow.string())
+                ]
+            )
+        )
+        self.parquet_table.insert_arrow(
+            RecordBatchReader.from_batches(data.schema, [data for _ in range(2)]),
+            filesystem=LocalFileSystem(),
+            existing_data_behavior="delete_matching"
+        )
+
+        self.assertEqual(
+            cast_batch(
+                Table.from_pandas(data.to_pandas().append(data.to_pandas())),
+                self.parquet_table.schema_arrow
+            ),
+            pyarrow.parquet.read_table(
+                self.parquet_table.pyarrow_location,
+                coerce_int96_timestamp_unit="ns"
+            )
         )
 
     def test_partition_table_insert_batch_full(self):
@@ -154,7 +182,7 @@ class AthenaTableTests(AthenaTestCase):
                 ]
             )
         )
-        athena_table.insert_arrow_batch(
+        athena_table.insert_arrow(
             data,
             filesystem=LocalFileSystem(),
             existing_data_behavior="delete_matching"
@@ -189,7 +217,7 @@ class AthenaTableTests(AthenaTestCase):
                 ]
             )
         )
-        athena_table.insert_arrow_batch(
+        athena_table.insert_arrow(
             data,
             base_dir={
                 "pstring": "static_value"

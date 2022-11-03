@@ -6,7 +6,7 @@ from typing import Optional, Union, Iterable, Generator
 
 import pyarrow.csv as pcsv
 
-from pyarrow import schema, Schema, DataType, RecordBatch
+from pyarrow import schema, Schema, DataType, RecordBatch, RecordBatchReader
 from pyarrow.fs import S3FileSystem
 
 from owlna.config import QueryStates
@@ -270,3 +270,6 @@ class Cursor:
                     decimal_point=decimal_point
                 )
             )
+
+    def reader(self, *args, **kwargs):
+        return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(*args, **kwargs))

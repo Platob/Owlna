@@ -1,17 +1,17 @@
 __all__ = ["Table"]
 
 import os
-from typing import Optional, Union
+from typing import Optional, Union, Iterable
 
+import pyarrow
 import pyarrow.csv as pcsv
-from pyarrow import Schema, RecordBatch, schema
+from pyarrow import Schema, RecordBatch, schema, RecordBatchReader
 from pyarrow.dataset import FileFormat, CsvFileFormat, ParquetFileFormat, write_dataset, \
     partitioning as partitioning_builder, Partitioning
 from pyarrow.fs import S3FileSystem
 
 from .config import DEFAULT_SAFE_MODE
-from .utils.arrow import cast_batch
-
+from .utils.arrow import cast_batch, cast_arrow
 
 SERIALIZATION_TO_CLASSIFICATION = {
     "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe": "parquet",
@@ -102,9 +102,14 @@ class Table:
     def partitioned(self):
         return len(self.partitioning.schema) > 0
 
-    def insert_arrow_batch(
+    def insert_arrow(
         self,
-        batch: RecordBatch,
+        batch: Union[
+            RecordBatch, pyarrow.Table,
+            RecordBatchReader,
+            Iterable[Union[RecordBatch, pyarrow.Table]]
+        ],
+        cast: bool = True,
         base_dir: Union[str, dict] = "",
         basename_template: str = "",
         existing_data_behavior: str = "overwrite_or_ignore",
@@ -118,6 +123,7 @@ class Table:
         See https://arrow.apache.org/docs/python/generated/pyarrow.dataset.write_dataset.html#pyarrow.dataset.write_dataset
 
         :param batch: pyarrow.RecordBatch
+        :param cast: cast to athena table data types
         :param base_dir: str or dict to append to table.location path
         :param basename_template: file name template
             default with "part-{i}-%s.%s" % (os.urandom(12).hex(), self.file_format.default_extname)
@@ -188,7 +194,7 @@ class Table:
             _file_options = None
 
         write_dataset(
-            cast_batch(batch, schema_arrow, safe=safe),
+            cast_arrow(batch, schema_arrow, safe=safe) if cast else batch,
             base_dir=base_dir,
             basename_template=basename_template,
             partitioning=partitioning,

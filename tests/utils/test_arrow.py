@@ -2,7 +2,7 @@ import datetime
 
 import numpy
 import pyarrow
-from pyarrow import RecordBatch, array
+from pyarrow import RecordBatch, array, Table
 
 from owlna.utils.arrow import cast_batch, cast_array, timestamp_to_timestamp
 from tests import AthenaTestCase
@@ -15,11 +15,26 @@ class ArrowUtilsTests(AthenaTestCase):
 
         self.assertEqual(raw, cast_batch(raw, raw.schema))
 
+    def test_cast_table_iso(self):
+        raw = Table.from_pydict({"string": ["a"]})
+
+        self.assertEqual(raw, cast_batch(raw, raw.schema))
+
     def test_cast_record_batch_reorder(self):
         raw = RecordBatch.from_pydict({
             "0": ["0"], "1": ["1"], "2": ["2"]
         })
         expected = RecordBatch.from_pydict({
+            "2": ["2"], "1": ["1"]
+        })
+
+        self.assertEqual(expected, cast_batch(raw, expected.schema))
+
+    def test_cast_table_reorder(self):
+        raw = Table.from_pydict({
+            "0": ["0"], "1": ["1"], "2": ["2"]
+        })
+        expected = Table.from_pydict({
             "2": ["2"], "1": ["1"]
         })
 
@@ -35,11 +50,31 @@ class ArrowUtilsTests(AthenaTestCase):
 
         self.assertEqual(expected, cast_batch(raw, expected.schema))
 
+    def test_cast_table_case_insensitive(self):
+        raw = Table.from_pydict({
+            "aAa": ["a"], "bBb": ["b"], "ccC": ["c"]
+        })
+        expected = Table.from_pydict({
+            "AaA": ["a"], "BbB": ["b"], "DDd": [None]
+        })
+
+        self.assertEqual(expected, cast_batch(raw, expected.schema))
+
     def test_cast_record_batch_fill_empty_columns(self):
         raw = RecordBatch.from_pydict({
             "0": ["0"], "1": ["1"], "2": ["2"]
         })
         expected = RecordBatch.from_pydict({
+            "2": ["2"], "1": ["1"], "3": [None]
+        })
+
+        self.assertEqual(expected, cast_batch(raw, expected.schema))
+
+    def test_cast_table_fill_empty_columns(self):
+        raw = Table.from_pydict({
+            "0": ["0"], "1": ["1"], "2": ["2"]
+        })
+        expected = Table.from_pydict({
             "2": ["2"], "1": ["1"], "3": [None]
         })
 
