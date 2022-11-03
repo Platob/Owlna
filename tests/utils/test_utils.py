@@ -103,6 +103,21 @@ class MetadataUtilsTests(AthenaTestCase):
                 'CaseSensitive': True
             })
         )
+        self.assertEqual(
+            pyarrow.field("timestamp with time zone", pyarrow.string()),
+            query_result_column_to_pyarrow_field({
+                'CatalogName': 'hive',
+                'SchemaName': '',
+                'TableName': '',
+                'Name': 'timestamp with time zone',
+                'Label': 'string',
+                'Type': 'timestamp with time zone',
+                'Precision': 3,
+                'Scale': 0,
+                'Nullable': 'UNKNOWN',
+                'CaseSensitive': True
+            })
+        )
 
     def test_query_result_column_to_pyarrow_field_metadata(self):
         self.assertEqual(

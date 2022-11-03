@@ -123,7 +123,7 @@ def query_result_column_to_pyarrow_field(meta: dict) -> Field:
         sqltype_to_datatype(
             meta["Type"], precision=meta["Precision"], scale=meta["Scale"], tz=None
         ),
-        nullable=not meta["Nullable"].startswith("T"),
+        nullable=not meta["Nullable"].startswith("T"),  # = 'UNKNOWN' atm
         metadata={
             k: str(v) for k, v in meta.items() if k not in {"Name", "Nullable"}
         }

@@ -2,11 +2,11 @@ __all__ = ["Cursor"]
 
 import time
 from asyncio import CancelledError
-from typing import Optional, Union, Iterable
+from typing import Optional, Union, Iterable, Generator
 
 import pyarrow.csv as pcsv
 
-from pyarrow import schema, Schema, DataType
+from pyarrow import schema, Schema, DataType, RecordBatch
 from pyarrow.fs import S3FileSystem
 
 from owlna.config import QueryStates
@@ -184,32 +184,89 @@ class Cursor:
         include_columns: Iterable[str] = (),
         column_types: dict[str, DataType] = {}
     ):
+        if include_columns:
+            return {
+                field.name: column_types.get(field.name, field.type)
+                for field in self.schema_arrow
+                if field.name in include_columns
+            }
         return {
             field.name: column_types.get(field.name, field.type)
             for field in self.schema_arrow
-            if (include_columns and field.name in include_columns)
         }
 
     # fetch
     def fetch_arrow_batches(
         self,
+        block_size: int = 44040192,  # 42 Mb = 42 * 1024 **2
         include_columns: Iterable[str] = (),
-        column_types: dict[str, DataType] = (),
+        column_types: dict[str, DataType] = {},
         strings_can_be_null: bool = True,
         delimiter: str = ",",
-        quote_char: str = '"'
-    ):
-        with self.s3fs.open_input_file(self.output_location[5:]) as stream:
+        quote_char: str = '"',
+        decimal_point: str = '.',
+        compression: Optional[str] = None,
+        **read_options
+    ) -> Generator[RecordBatch, None, None]:
+        column_types = self.csv_column_types(include_columns, column_types)
+
+        with self.s3fs.open_input_stream(
+            self.output_location[5:],
+            compression=compression,
+            buffer_size=block_size
+        ) as stream:
             for batch in pcsv.open_csv(
                 stream,
+                read_options=pcsv.ReadOptions(
+                    block_size=block_size,
+                    **read_options
+                ),
                 parse_options=pcsv.ParseOptions(
                     delimiter=delimiter,
                     quote_char=quote_char
                 ),
                 convert_options=pcsv.ConvertOptions(
-                    column_types=self.csv_column_types(include_columns, column_types),
+                    column_types=column_types,
                     strings_can_be_null=strings_can_be_null,
-                    include_columns=include_columns
+                    include_columns=include_columns,
+                    decimal_point=decimal_point
                 )
             ):
                 yield batch
+
+    def fetch_arrow(
+        self,
+        block_size: int = 44040192,  # 42 Mb = 42 * 1024 **2
+        include_columns: Iterable[str] = (),
+        column_types: dict[str, DataType] = {},
+        strings_can_be_null: bool = True,
+        delimiter: str = ",",
+        quote_char: str = '"',
+        decimal_point: str = '.',
+        compression: Optional[str] = None,
+        **read_options
+    ):
+        column_types = self.csv_column_types(include_columns, column_types)
+
+        with self.s3fs.open_input_stream(
+            self.output_location[5:],
+            compression=compression,
+            buffer_size=block_size
+        ) as stream:
+            return pcsv.read_csv(
+                stream,
+                read_options=pcsv.ReadOptions(
+                    block_size=block_size,
+                    **read_options
+                ),
+                parse_options=pcsv.ParseOptions(
+                    delimiter=delimiter,
+                    quote_char=quote_char
+                ),
+                convert_options=pcsv.ConvertOptions(
+                    column_types=column_types,
+                    strings_can_be_null=strings_can_be_null,
+                    include_columns=include_columns,
+                    decimal_point=decimal_point
+                )
+            )
