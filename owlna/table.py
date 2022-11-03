@@ -3,6 +3,7 @@ __all__ = ["Table"]
 import os
 from typing import Optional, Union
 
+import pyarrow.csv as pcsv
 from pyarrow import Schema, RecordBatch, schema
 from pyarrow.dataset import FileFormat, CsvFileFormat, ParquetFileFormat, write_dataset, \
     partitioning as partitioning_builder, Partitioning
@@ -12,26 +13,9 @@ from .config import DEFAULT_SAFE_MODE
 from .utils.arrow import cast_batch
 
 
-def parquet_ff():
-    return ParquetFileFormat()
-
-
-def csv_ff():
-    return CsvFileFormat()
-
-
-FILE_FORMATS = {
-    **{
-        k: parquet_ff for k in {
-            "parquet",
-            "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-        }
-    },
-    **{
-        k: csv_ff for k in {
-            "csv"
-        }
-    }
+SERIALIZATION_TO_CLASSIFICATION = {
+    "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe": "parquet",
+    "org.apache.hadoop.hive.serde2.OpenCSVSerde": "csv"
 }
 
 
@@ -56,6 +40,7 @@ class Table:
         self.parameters = parameters
 
         self._file_format = None
+        self.write_options = {}
 
     def __repr__(self):
         return "AthenaTable('%s', '%s', '%s')" % (
@@ -74,13 +59,43 @@ class Table:
     def s3fs(self) -> S3FileSystem:
         return self.connection.s3fs
 
+    def serde_params(self) -> dict[str, str]:
+        return {
+            k[12:]: v for k, v in self.parameters.items() if k.startswith("serde.param.")
+        }
+
     @property
     def file_format(self) -> FileFormat:
         if self._file_format is None:
             try:
-                self._file_format = FILE_FORMATS[self.parameters["classification"]]()
+                self._file_format = self.parameters["classification"]
             except KeyError:
-                self._file_format = FILE_FORMATS[self.parameters["inputformat"]]()
+                self._file_format = SERIALIZATION_TO_CLASSIFICATION[self.parameters["serde.serialization.lib"]]
+
+            if self._file_format == "parquet":
+                self._file_format = ParquetFileFormat()
+            elif self._file_format == "csv":
+                serde_params = self.serde_params()
+                skip_rows = int(self.parameters.get("skip.header.line.count", 0))
+
+                self._file_format = CsvFileFormat(
+                    pcsv.ParseOptions(
+                        delimiter=serde_params.get("separatorChar", ","),
+                        quote_char=serde_params.get("quoteChar", False)
+                    ),
+                    None,
+                    pcsv.ConvertOptions(
+                        check_utf8=True
+                    ),
+                    pcsv.ReadOptions(
+                        skip_rows=max(0, skip_rows - 1),
+                        encoding="utf8"
+                    )
+                )
+                self.write_options["include_header"] = skip_rows > 0
+            else:
+                raise NotImplementedError("Cannot handle '%s' file format" % self._file_format)
+
         return self._file_format
 
     @property
@@ -155,9 +170,22 @@ class Table:
         else:
             schema_arrow = self.schema_arrow
 
-        if file_options:
-            if isinstance(file_options, dict):
-                file_options = self.file_format.make_write_options().update(**file_options)
+        if self.file_format.__class__ == ParquetFileFormat:
+            _file_options = self.file_format.make_write_options()
+
+            if file_options:
+                file_options.update(self.write_options)
+                _file_options.update(**file_options)
+            else:
+                _file_options.update(**self.write_options)
+        elif self.file_format.__class__ == CsvFileFormat:
+            if file_options:
+                file_options.update(self.write_options)
+                _file_options = self.file_format.make_write_options(**file_options)
+            else:
+                _file_options = self.file_format.make_write_options(**self.write_options)
+        else:
+            _file_options = None
 
         write_dataset(
             cast_batch(batch, schema_arrow, safe=safe),
@@ -167,6 +195,6 @@ class Table:
             existing_data_behavior=existing_data_behavior,
             filesystem=filesystem if filesystem else self.s3fs,
             format=format if format else self.file_format,
-            file_options=file_options,
+            file_options=_file_options,
             **kwargs
         )
