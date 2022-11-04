@@ -22,9 +22,8 @@ with Athena(session=boto3.Session()).connect(
         
         # Fetch data
         schema = cursor.schema_arrow
-        # Generator[pyarrow.RecordBatch]
-        for batch in cursor.fetch_arrow_batches():
-            print(batch)
+        # pyarrow.RecordBatchReader
+        batch_reader = cursor.reader()
 ````
 
 See /examples notebooks

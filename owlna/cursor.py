@@ -271,5 +271,29 @@ class Cursor:
                 )
             )
 
-    def reader(self, *args, **kwargs):
-        return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(*args, **kwargs))
+    def reader(
+        self,
+        block_size: int = 44040192,  # 42 Mb = 42 * 1024 **2
+        include_columns: Iterable[str] = (),
+        column_types: dict[str, DataType] = {},
+        strings_can_be_null: bool = True,
+        delimiter: str = ",",
+        quote_char: str = '"',
+        decimal_point: str = '.',
+        compression: Optional[str] = None,
+        **read_options
+    ):
+        return RecordBatchReader.from_batches(
+            self.schema_arrow,
+            self.fetch_arrow_batches(
+                block_size,
+                include_columns,
+                column_types,
+                strings_can_be_null,
+                delimiter,
+                quote_char,
+                decimal_point,
+                compression,
+                **read_options
+            )
+        )
