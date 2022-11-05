@@ -1,5 +1,6 @@
 __all__ = [
-    "cast_batch", "cast_array", "cast_arrow"
+    "cast_batch", "cast_array", "cast_arrow",
+    "timestamp_to_timestamp"
 ]
 
 from typing import Union, Iterable
