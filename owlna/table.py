@@ -11,7 +11,7 @@ from pyarrow.dataset import FileFormat, CsvFileFormat, ParquetFileFormat, write_
 from pyarrow.fs import S3FileSystem
 
 from .config import DEFAULT_SAFE_MODE
-from .utils.arrow import cast_batch, cast_arrow
+from .utils.arrow import cast_arrow
 
 SERIALIZATION_TO_CLASSIFICATION = {
     "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe": "parquet",
@@ -162,6 +162,8 @@ class Table:
                     '%s=%s' % (k, v)
                     for k, v in base_dir.items()
                 ))
+            else:
+                base_dir = self.pyarrow_location
         else:
             base_dir = self.pyarrow_location
 

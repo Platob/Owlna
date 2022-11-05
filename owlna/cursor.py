@@ -1,16 +1,14 @@
 __all__ = ["Cursor"]
 
 import time
-from asyncio import CancelledError
 from typing import Optional, Union, Iterable, Generator
 
 import pyarrow.csv as pcsv
-
 from pyarrow import schema, Schema, DataType, RecordBatch, RecordBatchReader
 from pyarrow.fs import S3FileSystem
 
-from owlna.config import QueryStates
-from owlna.exception import AthenaError
+from owlna.config import QueryStates, DEFAULT_CURSOR_WAIT
+from owlna.exception import AthenaError, CancelledQuery
 from owlna.utils.metadata import query_result_column_to_pyarrow_field
 
 
@@ -100,7 +98,7 @@ class Cursor:
         meta = self.client.get_query_execution(QueryExecutionId=self.id)["QueryExecution"]
 
         # persist
-        if QueryStates[meta["Status"]["State"]].value in QueryStates.DONE_STATES.value:
+        if meta["Status"]["State"] in QueryStates.DONE_STATES.value:
             self.__status = meta["Status"]
             self.__statistics = meta["Statistics"]
             self.__result = meta["ResultConfiguration"]
@@ -119,14 +117,14 @@ class Cursor:
     def execute(
         self,
         query: str,
-        wait: Optional[Union[float, bool]] = None,
+        wait: Union[float, bool] = DEFAULT_CURSOR_WAIT,
         **kwargs
     ) -> "Cursor":
         """
         See https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/athena.html#Athena.Client.start_query_execution
 
         :param query:
-        :param wait: wait query to be done
+        :param wait: wait query to be done with self.wait(tick=wait)
         :param kwargs: other boto3 kwargs
         """
         self.id = self.client.start_query_execution(
@@ -148,27 +146,28 @@ class Cursor:
     def stop(self):
         if self.id:
             self.client.stop_query_execution(QueryExecutionId=self.id)
-            self.id = None
 
     def __await__(self):
         self.wait()
 
-    def wait(self, tick: Union[float, bool] = 0.5):
+    def wait(self, tick: Union[float, bool] = DEFAULT_CURSOR_WAIT, raise_error: bool = True):
         if isinstance(tick, bool):
-            tick = 0.5
+            tick = DEFAULT_CURSOR_WAIT
         try:
             while not self.done:
                 time.sleep(tick)
         except BaseException as e:
             self.stop()
             raise e
-        self.raise_exception()
+
+        if raise_error:
+            self.raise_exception()
 
     def raise_exception(self):
         state = self.state
 
         if state == QueryStates.CANCELLED.value:
-            raise CancelledError("%s: Cancelled" % repr(self))
+            raise CancelledQuery("%s: Cancelled" % repr(self))
         elif state == QueryStates.FAILED.value:
             meta = self.status["AthenaError"]
             raise AthenaError(

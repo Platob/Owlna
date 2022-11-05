@@ -1,4 +1,22 @@
-class OwlnaException(Exception):
+__all__ = [
+    "OwlnaBaseException",
+    "OwlnaException",
+    "CancelledQuery",
+    "AthenaError"
+]
+
+from asyncio import CancelledError
+
+
+class OwlnaBaseException(BaseException):
+    pass
+
+
+class OwlnaException(OwlnaBaseException):
+    pass
+
+
+class CancelledQuery(CancelledError, OwlnaBaseException):
     pass
 
 
