@@ -138,9 +138,6 @@ class Table:
         :param file_options:
         :param kwargs: other pyarrow.write_dataset options
         """
-        if not basename_template:
-            basename_template = "part-{i}-%s.%s" % (os.urandom(12).hex(), self.file_format.default_extname)
-
         partitioning = self.partitioning
 
         if base_dir:
@@ -186,12 +183,18 @@ class Table:
                 _file_options.update(**file_options)
             else:
                 _file_options.update(**self.write_options)
+
+            if not basename_template:
+                basename_template = "part-{i}-%s.snappy.parquet" % os.urandom(12).hex()
         elif self.file_format.__class__ == CsvFileFormat:
             if file_options:
                 file_options.update(self.write_options)
                 _file_options = self.file_format.make_write_options(**file_options)
             else:
                 _file_options = self.file_format.make_write_options(**self.write_options)
+
+            if not basename_template:
+                basename_template = "part-{i}-%s.csv" % os.urandom(12).hex()
         else:
             _file_options = None
 
