@@ -1,5 +1,6 @@
 import tempfile
 
+import pandas
 import pyarrow.dataset
 import pyarrow.parquet
 from pyarrow import RecordBatch, schema, RecordBatchReader, Table
@@ -154,7 +155,7 @@ class AthenaTableTests(AthenaTestCase):
 
         self.assertEqual(
             cast_batch(
-                Table.from_pandas(data.to_pandas().append(data.to_pandas())),
+                Table.from_pandas(pandas.concat([data.to_pandas(), data.to_pandas()])),
                 self.parquet_table.schema_arrow
             ),
             pyarrow.parquet.read_table(
